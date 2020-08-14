@@ -1,0 +1,184 @@
+---
+title: "MushroomProject"
+author: "Rachael Hawthorne"
+date: "6/18/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+attach(mushrooms)
+library(caret)
+library(class)
+library(dplyr)
+library(e1071)
+library(gmodels) 
+library(psych)
+library(corrplot)
+library(MASS)
+library(stats)
+
+```
+
+```{r preprocessing}
+##there are supposedly missing values in stalk-root
+mushies = mushrooms
+mushies$class = factor(mushies$class)
+mushies$bruises = factor(mushies$bruises)
+mushies$gill.size = factor(mushies$gill.size)
+mushies$stalk.shape = factor(mushies$stalk.shape)
+
+#encoding dummy variables: > 2 levels
+mushies$cap.shape = factor(mushies$cap.shape)
+mushies$cap.surface = factor(mushies$cap.surface)
+mushies$cap.color = factor(mushies$cap.color)
+mushies$odor = factor(mushies$odor)
+mushies$gill.attachment = factor(mushies$gill.attachment)
+mushies$gill.spacing = factor(mushies$gill.spacing)
+mushies$gill.color = factor(mushies$gill.color)
+mushies$stalk.root = factor(mushies$stalk.root)
+mushies$stalk.surface.above.ring =factor(mushies$stalk.surface.above.ring)
+mushies$stalk.surface.below.ring = factor(mushies$stalk.surface.below.ring)
+mushies$stalk.color.above.ring = factor(mushies$stalk.color.above.ring)
+mushies$stalk.color.below.ring = factor(mushies$stalk.color.below.ring)
+mushies$veil.color = factor(mushies$veil.color)
+mushies$ring.number = factor(mushies$ring.number)
+mushies$ring.type = factor(mushies$ring.type)
+mushies$spore.print.color = factor(mushies$spore.print.color)
+mushies$population = factor(mushies$population)
+mushies$habitat = factor(mushies$habitat)
+mushies$veil.type = factor(mushies$veil.type)
+
+mushies$veil.type[mushies$veil.type == "u"]
+mushies$veil.type = NULL
+mushies$stalk.root[mushies$stalk.root== '?' ] = NA
+#mushies[!complete.cases(mushies),]
+mushies$stalk.root = NULL
+str(mushies)
+
+```
+METHOD I: K-NEAREST NEIGHBORS CLASSIFICATION
+```{r KNN}
+set.seed(10)
+mushies_c = mushies %>% dplyr::select(class)
+mushies = mushies %>% dplyr::select(-class)
+
+#prepping data for classification
+#encoding dummy variables: 2 levels
+mushies$bruises = ifelse(mushies$bruises == "t", 1, 0)
+mushies$gill.size = dummy.code(mushies$gill.size)
+mushies$stalk.shape = dummy.code(mushies$stalk.shape)
+
+#encoding dummy variables: > 2 levels
+mushies$cap.shape = as.data.frame(dummy.code(mushies$cap.shape))
+mushies$cap.shape
+mushies$cap.surface = as.data.frame(dummy.code(mushies$cap.surface))
+mushies$cap.color = as.data.frame(dummy.code(mushies$cap.color))
+mushies$odor = as.data.frame(dummy.code(mushies$odor))
+mushies$gill.attachment = as.data.frame(dummy.code(mushies$gill.attachment))
+mushies$gill.spacing = as.data.frame(dummy.code(mushies$gill.spacing))
+mushies$gill.color = as.data.frame(dummy.code(mushies$gill.color))
+mushies$stalk.surface.above.ring = as.data.frame(dummy.code(mushies$stalk.surface.above.ring))
+mushies$stalk.surface.below.ring = as.data.frame(dummy.code(mushies$stalk.surface.below.ring))
+mushies$stalk.color.above.ring = as.data.frame(dummy.code(mushies$stalk.color.above.ring))
+mushies$stalk.color.below.ring = as.data.frame(dummy.code(mushies$stalk.color.below.ring))
+mushies$veil.color = as.data.frame(dummy.code(mushies$veil.color))
+mushies$ring.number = as.data.frame(dummy.code(mushies$ring.number))
+mushies$ring.type = as.data.frame(dummy.code(mushies$ring.type))
+mushies$spore.print.color = as.data.frame(dummy.code(mushies$spore.print.color))
+mushies$population = as.data.frame(dummy.code(mushies$population))
+mushies$habitat = as.data.frame(dummy.code(mushies$habitat))
+
+#splitting data
+sample_sz = floor(0.75*nrow(mushies))
+train_ind = sample(seq_len(nrow(mushies)), size=sample_sz)
+train = mushies[train_ind,] #training set including class
+test = mushies[-train_ind,] #testing set including class
+
+knn.train_labels = mushies_c[train_ind,] #class labels for train set
+knn.test_labels = mushies_c[-train_ind,] #class labels for test set
+
+#KNN, k=90
+#predicted values
+knn.test_pred = data.frame(knn(train = train, test = test, cl = knn.train_labels, k = 90))
+#put your observed values into a df)
+knn.test_labels = data.frame(knn.test_labels) 
+
+#predicted & observed values in a df
+knn.comp = data.frame(test_pred, test_labels)
+
+#rename columns
+names(knn.comp) = c("PredictedClass", "ObservedClass") 
+#confusion matrix
+knn.tab = table(knn.comp$PredictedClass,knn.comp$ObservedClass, dnn = c("Predicted", "Actual"))
+print(confusionMatrix(knn.tab[2:1,2:1]))
+
+```
+METHOD II: LOGISTIC REGRESSION
+
+```{r logistic regression}
+set.seed(10)
+#prepping data for classification
+mushies$class = ifelse(mushies$class == 'e', 1, 0)
+
+sample_sz = floor(0.75*nrow(mushies))
+train_ind = sample(seq_len(nrow(mushies)), size=sample_sz)
+lr.train = mushies[train_ind,] #training set including class
+lr.test = mushies[-train_ind,] #testing set including class
+
+glm.mush = glm(class~+gill.spacing+gill.size+habitat, data = lr.train, family = binomial(link = "logit"))
+summary(glm.mush)
+anova(glm.mush, test = "Chisq")
+
+mush.probs = data.frame(predict(glm.mush, subset(lr.test), type = "response"))
+
+mush.probs = ifelse(mush.probs>0.5, 1, 0)
+lr.test_labels = data.frame(lr.test$class)
+#predicted & observed values in a df
+lr.comp = data.frame(mush.probs, lr.test_labels)
+lr.comp
+
+#rename columns
+names(lr.comp) = c("PredictedClass", "ObservedClass") 
+#confusion matrix
+lr.tab = table(lr.comp$PredictedClass,lr.comp$ObservedClass, dnn = c("Predicted", "Actual"))
+print(confusionMatrix(lr.tab[2:1,2:1]))
+
+```
+METHOD III: LINEAR DISCRIMINANT ANALYSIS
+
+```{r LDA}
+set.seed(10)
+
+#testing for collinear variables
+for (i in 2:ncol(mushies)) {
+  for(j in 3:ncol(mushies)){
+    cs = chisq.test(table(mushies[,i],mushies[,j]), simulate.p.value = TRUE)
+    if(cs$p.value > 0.05){
+      print(colnames(mushies)[i])
+      print(colnames(mushies)[j])
+      print(cs$p.value)
+      print("")
+    }
+  }
+}
+#veil color and ring number are collinear? So remove?
+mushies$veil.color = NULL
+mushies$ring.number = NULL
+#splitting data
+sample_sz = floor(0.75*nrow(mushies))
+train_ind = sample(seq_len(nrow(mushies)), size=sample_sz)
+lda.train = mushies[train_ind,] #training set including class
+lda.test = mushies[-train_ind,] #testing set including class
+
+#LDA
+lda.mush = lda(class~., data=lda.train)
+lda.class = predict(lda.mush, lda.test)$class
+
+lda.tab <- table(lda.class, lda.test$class)
+print(confusionMatrix(lda.tab[2:1,2:1]))
+
+```
+
+
+
